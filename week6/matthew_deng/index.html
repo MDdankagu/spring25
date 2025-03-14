@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Socket.IO Chat with Nicknames</title>
+    <style>
+      body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+      #form {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        height: 5rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+      }
+
+      #typing {
+        font-style: italic;
+        color: blue;
+        margin: 0 0 5px 15px;
+        height: 1.5rem;
+      }
+
+      #input {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+
+      #input:focus { outline: none; }
+
+      #form > div { 
+        display: flex; 
+        height: 3rem; 
+      }
+
+      #form > div > button {
+        background: #333;
+        border: none;
+        padding: 0 1rem;
+        margin: 0.25rem;
+        border-radius: 3px;
+        outline: none;
+        color: #fff;
+      }
+
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages > li { padding: 0.5rem 1rem; }
+      #messages > li:nth-child(odd) { background: #efefef; }
+
+      .message-timestamp {
+        font-size: 0.8rem;
+        color: gray;
+      }
+
+      .message-actions {
+        font-size: 0.8rem;
+        color: red;
+        cursor: pointer;
+        display: none;
+      }
+
+      .message-actions.edit, .message-actions.delete {
+        margin-left: 10px;
+      }
+
+      .editing-message {
+        display: flex;
+        margin-top: 10px;
+      }
+
+      .editing-message input {
+        flex-grow: 1;
+        margin-right: 10px;
+        padding: 5px;
+      }
+
+      .editing-message button {
+        padding: 5px 10px;
+        background: #333;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+      }
+
+      .edit-button, .delete-button {
+        display: inline-block;
+        margin-top: 5px;
+        color: blue;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="nicknameForm">
+      <h2>Enter a Nickname:</h2>
+      <input id="nicknameInput" type="text" placeholder="Your nickname">
+      <button id="setNickname">Join Chat</button>
+    </div>
+
+    <ul id="messages" style="display: none;"></ul>
+
+    <!-- Moved "User is typing..." above the input field -->
+    <form id="form" style="display: none;">
+      <p id="typing"></p>
+      <div>
+        <input id="input" autocomplete="off" /><button>Send</button>
+      </div>
+    </form>
+
+    <!-- Editing message input field -->
+    <div id="editingContainer" class="editing-message" style="display: none;">
+      <input id="editMessageInput" type="text" placeholder="Edit message">
+      <button id="saveEditButton">Save</button>
+      <button id="cancelEditButton">Cancel</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      var socket = io();
+      var nickname = "";
+      var editingMessageId = null;
+      var userId = ""; // Store the user's socket ID for comparison
+    
+      document.getElementById("setNickname").addEventListener("click", function() {
+        var input = document.getElementById("nicknameInput");
+        if (input.value.trim()) {
+          nickname = input.value.trim();
+          socket.emit("set nickname", nickname);
+          document.getElementById("nicknameForm").style.display = "none";
+          document.getElementById("messages").style.display = "block";
+          document.getElementById("form").style.display = "flex";
+        }
+      });
+    
+      document.getElementById("form").addEventListener("submit", function(e) {
+        e.preventDefault();
+        var input = document.getElementById("input");
+        if (input.value.trim()) {
+          socket.emit("chat message", { nickname: nickname, message: input.value });
+          input.value = "";
+        }
+      });
+    
+      document.getElementById("input").addEventListener("input", function() {
+        socket.emit("typing", nickname);
+      });
+    
+      socket.on("chat message", function(data) {
+        userId = data.userId; // Save userId when a message is received
+    
+        var item = document.createElement("li");
+        item.setAttribute("data-id", data.id);
+        item.innerHTML = `<strong>${data.nickname}:</strong> ${data.message} <span class="message-timestamp">${data.timestamp}</span> 
+                          <span class="message-actions edit" onclick="startEditMessage(${data.id}, '${data.message}')">Edit</span>
+                          <span class="message-actions delete" onclick="deleteMessage(${data.id})">Delete</span>`;
+    
+        // Show edit and delete buttons only if the message belongs to the current user
+        if (data.userId === userId) {
+          item.querySelector(".message-actions.edit").style.display = "inline";
+          item.querySelector(".message-actions.delete").style.display = "inline";
+        } else {
+          item.querySelector(".message-actions.edit").style.display = "none";
+          item.querySelector(".message-actions.delete").style.display = "none";
+        }
+    
+        document.getElementById("messages").appendChild(item);
+        document.getElementById("typing").textContent = "";
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+    
+      // Edit message
+      function startEditMessage(messageId, currentMessage) {
+        editingMessageId = messageId;
+        document.getElementById("editMessageInput").value = currentMessage;
+        document.getElementById("editingContainer").style.display = "flex";
+      }
+    
+      document.getElementById("saveEditButton").addEventListener("click", function() {
+        const newMessage = document.getElementById("editMessageInput").value;
+        if (newMessage) {
+          socket.emit('edit message', { id: editingMessageId, newMessage: newMessage });
+          document.getElementById("editingContainer").style.display = "none";
+          editingMessageId = null; // Reset the editing message ID to allow for multiple edits
+        }
+      });
+    
+      document.getElementById("cancelEditButton").addEventListener("click", function() {
+        document.getElementById("editingContainer").style.display = "none";
+        editingMessageId = null; // Reset the editing message ID to allow for multiple edits
+      });
+    
+      // Delete message
+      function deleteMessage(messageId) {
+        socket.emit('delete message', messageId);
+      }
+    
+      // Typing indicator
+      var typingIndicator = document.getElementById("typing");
+      var typingTimeout;
+    
+      socket.on("typing", function(nickname) {
+        clearTimeout(typingTimeout); // Reset timeout
+        typingIndicator.textContent = `${nickname} is typing...`;
+    
+        typingTimeout = setTimeout(() => {
+          typingIndicator.textContent = "";
+        }, 3000);
+      });
+    
+      socket.on('edit message', (updatedMessage) => {
+        const messageElement = document.querySelector(`[data-id='${updatedMessage.id}']`);
+        if (messageElement) {
+          // Update the message text in the DOM
+          messageElement.innerHTML = `<strong>${updatedMessage.nickname}:</strong> ${updatedMessage.message} 
+                                      <span class="message-timestamp">${updatedMessage.timestamp}</span> 
+                                      <span class="message-actions edit" onclick="startEditMessage(${updatedMessage.id}, '${updatedMessage.message}')">Edit</span>
+                                      <span class="message-actions delete" onclick="deleteMessage(${updatedMessage.id})">Delete</span>`;
+          
+          // Reattach event listeners for the edit and delete buttons
+          messageElement.querySelector(".message-actions.edit").addEventListener("click", function() {
+            startEditMessage(updatedMessage.id, updatedMessage.message);
+          });
+
+          messageElement.querySelector(".message-actions.delete").addEventListener("click", function() {
+            deleteMessage(updatedMessage.id);
+          });
+        }
+      });
+    
+      socket.on('delete message', (messageId) => {
+        const messageElement = document.querySelector(`[data-id='${messageId}']`);
+        if (messageElement) {
+          messageElement.remove();
+        }
+      });
+    </script>    
+  </body>
+</html>
